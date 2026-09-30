@@ -1,0 +1,12 @@
+include: package:lints/recommended.yaml
+
+analyzer:
+  exclude:
+    - reference/**
+
+linter:
+  rules:
+    # The port keeps rp2040js's names (IRQ.TIMER_0, SYSM_MSP, ...) so the
+    # two stay easy to compare line by line.
+    constant_identifier_names: false
+    non_constant_identifier_names: false

@@ -1,0 +1,13 @@
+name: rp2040_dart
+description: A pure Dart port of rp2040js, the Raspberry Pi RP2040 (Pico) emulator — Cortex-M0+ core, PIO, DMA, USB and the rest of the chip, with no native dependency.
+version: 0.1.0
+repository: https://github.com/PinBench/rp2040_dart
+issue_tracker: https://github.com/PinBench/rp2040_dart/issues
+topics: [emulator, rp2040, raspberry-pi-pico, microcontroller, simulation]
+
+environment:
+  sdk: ^3.9.0
+
+dev_dependencies:
+  lints: ^6.0.0
+  test: ^1.25.0
