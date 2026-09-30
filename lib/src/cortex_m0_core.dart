@@ -54,8 +54,371 @@ enum StackPointerBank { SPmain, SPprocess }
 
 const String _LOG_NAME = 'CortexM0Core';
 
+/// Which case of [CortexM0Core.executeInstruction] a 16-bit opcode runs: 1..83,
+/// or 0 for none (the "not implemented" warning).
+///
+/// Built from [_decode], which runs the if-chain this replaced (rp2040js's), in
+/// the same order, so every instruction still runs exactly the case it always
+/// did. A 32-bit instruction (first half-word `0b1111...` or `0b11101...`) is
+/// marked [_decodeWide] instead: seven of its cases also test the second
+/// half-word, so it is decoded when it runs, from both half-words.
+final Uint8List _decodeTable = _buildDecodeTable();
+
+const int _decodeWide = 255;
+
+Uint8List _buildDecodeTable() {
+  final table = Uint8List(0x10000);
+  for (var opcode = 0; opcode < 0x10000; opcode++) {
+    final wide = opcode >> 12 == 0xf || opcode >> 11 == 0x1d;
+    table[opcode] = wide ? _decodeWide : _decode(opcode, 0);
+  }
+  return table;
+}
+
+int _decode(int opcode, int opcode2) {
+  // ADCS
+  if (opcode >> 6 == 0x105 /* 0b0100000101 */ ) {
+    return 1;
+  }
+  // ADD (register = SP plus immediate)
+  if (opcode >> 11 == 0x15 /* 0b10101 */ ) {
+    return 2;
+  }
+  // ADD (SP plus immediate)
+  if (opcode >> 7 == 0x160 /* 0b101100000 */ ) {
+    return 3;
+  }
+  // ADDS (Encoding T1)
+  if (opcode >> 9 == 0xe /* 0b0001110 */ ) {
+    return 4;
+  }
+  // ADDS (Encoding T2)
+  if (opcode >> 11 == 0x6 /* 0b00110 */ ) {
+    return 5;
+  }
+  // ADDS (register)
+  if (opcode >> 9 == 0xc /* 0b0001100 */ ) {
+    return 6;
+  }
+  // ADD (register)
+  if (opcode >> 8 == 0x44 /* 0b01000100 */ ) {
+    return 7;
+  }
+  // ADR
+  if (opcode >> 11 == 0x14 /* 0b10100 */ ) {
+    return 8;
+  }
+  // ANDS (Encoding T2)
+  if (opcode >> 6 == 0x100 /* 0b0100000000 */ ) {
+    return 9;
+  }
+  // ASRS (immediate)
+  if (opcode >> 11 == 0x2 /* 0b00010 */ ) {
+    return 10;
+  }
+  // ASRS (register)
+  if (opcode >> 6 == 0x104 /* 0b0100000100 */ ) {
+    return 11;
+  }
+  // B (with cond)
+  if (opcode >> 12 == 0xd /* 0b1101 */ && ((opcode >> 9) & 0x7) != 0x7) {
+    return 12;
+  }
+  // B
+  if (opcode >> 11 == 0x1c /* 0b11100 */ ) {
+    return 13;
+  }
+  // BICS
+  if (opcode >> 6 == 0x10e /* 0b0100001110 */ ) {
+    return 14;
+  }
+  // BKPT
+  if (opcode >> 8 == 0xbe /* 0b10111110 */ ) {
+    return 15;
+  }
+  if (opcode >> 11 == 0x1e /* 0b11110 */ &&
+      opcode2 >> 14 == 0x3 &&
+      ((opcode2 >> 12) & 0x1) == 1) {
+    return 16;
+  }
+  // BLX
+  if (opcode >> 7 == 0x8f /* 0b010001111 */ && (opcode & 0x7) == 0) {
+    return 17;
+  }
+  // BX
+  if (opcode >> 7 == 0x8e /* 0b010001110 */ && (opcode & 0x7) == 0) {
+    return 18;
+  }
+  // CMN (register)
+  if (opcode >> 6 == 0x10b /* 0b0100001011 */ ) {
+    return 19;
+  }
+  // CMP immediate
+  if (opcode >> 11 == 0x5 /* 0b00101 */ ) {
+    return 20;
+  }
+  // CMP (register)
+  if (opcode >> 6 == 0x10a /* 0b0100001010 */ ) {
+    return 21;
+  }
+  // CMP (register) encoding T2
+  if (opcode >> 8 == 0x45 /* 0b01000101 */ ) {
+    return 22;
+  }
+  // CPSID i
+  if (opcode == 0xb672) {
+    return 23;
+  }
+  // CPSIE i
+  if (opcode == 0xb662) {
+    return 24;
+  }
+  // DMB SY
+  if (opcode == 0xf3bf && (opcode2 & 0xfff0) == 0x8f50) {
+    return 25;
+  }
+  // DSB SY
+  if (opcode == 0xf3bf && (opcode2 & 0xfff0) == 0x8f40) {
+    return 26;
+  }
+  // EORS
+  if (opcode >> 6 == 0x101 /* 0b0100000001 */ ) {
+    return 27;
+  }
+  // ISB SY
+  if (opcode == 0xf3bf && (opcode2 & 0xfff0) == 0x8f60) {
+    return 28;
+  }
+  // LDMIA
+  if (opcode >> 11 == 0x19 /* 0b11001 */ ) {
+    return 29;
+  }
+  // LDR (immediate)
+  if (opcode >> 11 == 0xd /* 0b01101 */ ) {
+    return 30;
+  }
+  // LDR (sp + immediate)
+  if (opcode >> 11 == 0x13 /* 0b10011 */ ) {
+    return 31;
+  }
+  // LDR (literal)
+  if (opcode >> 11 == 0x9 /* 0b01001 */ ) {
+    return 32;
+  }
+  // LDR (register)
+  if (opcode >> 9 == 0x2c /* 0b0101100 */ ) {
+    return 33;
+  }
+  // LDRB (immediate)
+  if (opcode >> 11 == 0xf /* 0b01111 */ ) {
+    return 34;
+  }
+  // LDRB (register)
+  if (opcode >> 9 == 0x2e /* 0b0101110 */ ) {
+    return 35;
+  }
+  // LDRH (immediate)
+  if (opcode >> 11 == 0x11 /* 0b10001 */ ) {
+    return 36;
+  }
+  // LDRH (register)
+  if (opcode >> 9 == 0x2d /* 0b0101101 */ ) {
+    return 37;
+  }
+  // LDRSB
+  if (opcode >> 9 == 0x2b /* 0b0101011 */ ) {
+    return 38;
+  }
+  // LDRSH
+  if (opcode >> 9 == 0x2f /* 0b0101111 */ ) {
+    return 39;
+  }
+  // LSLS (immediate)
+  if (opcode >> 11 == 0x0 /* 0b00000 */ ) {
+    return 40;
+  }
+  // LSLS (register)
+  if (opcode >> 6 == 0x102 /* 0b0100000010 */ ) {
+    return 41;
+  }
+  // LSRS (immediate)
+  if (opcode >> 11 == 0x1 /* 0b00001 */ ) {
+    return 42;
+  }
+  // LSRS (register)
+  if (opcode >> 6 == 0x103 /* 0b0100000011 */ ) {
+    return 43;
+  }
+  // MOV
+  if (opcode >> 8 == 0x46 /* 0b01000110 */ ) {
+    return 44;
+  }
+  // MOVS
+  if (opcode >> 11 == 0x4 /* 0b00100 */ ) {
+    return 45;
+  }
+  // MRS
+  if (opcode == 0xf3ef /* 0b1111001111101111 */ && opcode2 >> 12 == 0x8) {
+    return 46;
+  }
+  if (opcode >> 4 == 0xf38 /* 0b111100111000 */ &&
+      opcode2 >> 8 == 0x88 /* 0b10001000 */ ) {
+    return 47;
+  }
+  // MULS
+  if (opcode >> 6 == 0x10d /* 0b0100001101 */ ) {
+    return 48;
+  }
+  // MVNS
+  if (opcode >> 6 == 0x10f /* 0b0100001111 */ ) {
+    return 49;
+  }
+  // ORRS (Encoding T2)
+  if (opcode >> 6 == 0x10c /* 0b0100001100 */ ) {
+    return 50;
+  }
+  // POP
+  if (opcode >> 9 == 0x5e /* 0b1011110 */ ) {
+    return 51;
+  }
+  // PUSH
+  if (opcode >> 9 == 0x5a /* 0b1011010 */ ) {
+    return 52;
+  }
+  // REV
+  if (opcode >> 6 == 0x2e8 /* 0b1011101000 */ ) {
+    return 53;
+  }
+  // REV16
+  if (opcode >> 6 == 0x2e9 /* 0b1011101001 */ ) {
+    return 54;
+  }
+  // REVSH
+  if (opcode >> 6 == 0x2eb /* 0b1011101011 */ ) {
+    return 55;
+  }
+  // ROR
+  if (opcode >> 6 == 0x107 /* 0b0100000111 */ ) {
+    return 56;
+  }
+  // NEGS / RSBS
+  if (opcode >> 6 == 0x109 /* 0b0100001001 */ ) {
+    return 57;
+  }
+  // NOP
+  if (opcode == 0xbf00 /* 0b1011111100000000 */ ) {
+    return 58;
+  }
+  // SBCS (Encoding T1)
+  if (opcode >> 6 == 0x106 /* 0b0100000110 */ ) {
+    return 59;
+  }
+  // SEV
+  if (opcode == 0xbf40 /* 0b1011111101000000 */ ) {
+    return 60;
+  }
+  // STMIA
+  if (opcode >> 11 == 0x18 /* 0b11000 */ ) {
+    return 61;
+  }
+  // STR (immediate)
+  if (opcode >> 11 == 0xc /* 0b01100 */ ) {
+    return 62;
+  }
+  // STR (sp + immediate)
+  if (opcode >> 11 == 0x12 /* 0b10010 */ ) {
+    return 63;
+  }
+  // STR (register)
+  if (opcode >> 9 == 0x28 /* 0b0101000 */ ) {
+    return 64;
+  }
+  // STRB (immediate)
+  if (opcode >> 11 == 0xe /* 0b01110 */ ) {
+    return 65;
+  }
+  // STRB (register)
+  if (opcode >> 9 == 0x2a /* 0b0101010 */ ) {
+    return 66;
+  }
+  // STRH (immediate)
+  if (opcode >> 11 == 0x10 /* 0b10000 */ ) {
+    return 67;
+  }
+  // STRH (register)
+  if (opcode >> 9 == 0x29 /* 0b0101001 */ ) {
+    return 68;
+  }
+  // SUB (SP minus immediate)
+  if (opcode >> 7 == 0x161 /* 0b101100001 */ ) {
+    return 69;
+  }
+  // SUBS (Encoding T1)
+  if (opcode >> 9 == 0xf /* 0b0001111 */ ) {
+    return 70;
+  }
+  // SUBS (Encoding T2)
+  if (opcode >> 11 == 0x7 /* 0b00111 */ ) {
+    return 71;
+  }
+  // SUBS (register)
+  if (opcode >> 9 == 0xd /* 0b0001101 */ ) {
+    return 72;
+  }
+  // SVC
+  if (opcode >> 8 == 0xdf /* 0b11011111 */ ) {
+    return 73;
+  }
+  // SXTB
+  if (opcode >> 6 == 0x2c9 /* 0b1011001001 */ ) {
+    return 74;
+  }
+  // SXTH
+  if (opcode >> 6 == 0x2c8 /* 0b1011001000 */ ) {
+    return 75;
+  }
+  // TST
+  if (opcode >> 6 == 0x108 /* 0b0100001000 */ ) {
+    return 76;
+  }
+  // UDF
+  if (opcode >> 8 == 0xde /* 0b11011110 */ ) {
+    return 77;
+  }
+  if (opcode >> 4 == 0xf7f /* 0b111101111111 */ &&
+      opcode2 >> 12 == 0xa /* 0b1010 */ ) {
+    return 78;
+  }
+  // UXTB
+  if (opcode >> 6 == 0x2cb /* 0b1011001011 */ ) {
+    return 79;
+  }
+  // UXTH
+  if (opcode >> 6 == 0x2ca /* 0b1011001010 */ ) {
+    return 80;
+  }
+  // WFE
+  if (opcode == 0xbf20 /* 0b1011111100100000 */ ) {
+    return 81;
+  }
+  // WFI
+  if (opcode == 0xbf30 /* 0b1011111100110000 */ ) {
+    return 82;
+  }
+  // YIELD
+  if (opcode == 0xbf10 /* 0b1011111100010000 */ ) {
+    return 83;
+  }
+  return 0;
+}
+
 class CortexM0Core {
   final Uint32List registers = Uint32List(16);
+
+  /// [_decodeTable], held per core: a top-level `final` is initialised lazily,
+  /// so every read of it pays an initialisation check, where an instance field
+  /// read does not. [executeInstruction] reads it for every instruction.
+  final Uint8List decodeTable = _decodeTable;
   int bankedSP = 0;
   int cycles = 0;
 
@@ -632,750 +995,585 @@ class CortexM0Core {
     final opcode2 = wideInstruction ? readUint16(opcodePC + 2) : 0;
     PC += 2;
     var deltaCycles = 1;
-    // ADCS
-    if (opcode >> 6 == 0x105 /* 0b0100000101 */ ) {
-      final Rm = (opcode >> 3) & 0x7;
-      final Rdn = opcode & 0x7;
-      registers[Rdn] = _addUpdateFlags(
-        registers[Rm],
-        registers[Rdn] + (C ? 1 : 0),
-      );
+    var kind = decodeTable[opcode];
+    if (kind == _decodeWide) {
+      kind = _decode(opcode, opcode2);
     }
-    // ADD (register = SP plus immediate)
-    else if (opcode >> 11 == 0x15 /* 0b10101 */ ) {
-      final imm8 = opcode & 0xff;
-      final Rd = (opcode >> 8) & 0x7;
-      registers[Rd] = SP + (imm8 << 2);
-    }
-    // ADD (SP plus immediate)
-    else if (opcode >> 7 == 0x160 /* 0b101100000 */ ) {
-      final imm32 = (opcode & 0x7f) << 2;
-      SP += imm32;
-    }
-    // ADDS (Encoding T1)
-    else if (opcode >> 9 == 0xe /* 0b0001110 */ ) {
-      final imm3 = (opcode >> 6) & 0x7;
-      final Rn = (opcode >> 3) & 0x7;
-      final Rd = opcode & 0x7;
-      registers[Rd] = _addUpdateFlags(registers[Rn], imm3);
-    }
-    // ADDS (Encoding T2)
-    else if (opcode >> 11 == 0x6 /* 0b00110 */ ) {
-      final imm8 = opcode & 0xff;
-      final Rdn = (opcode >> 8) & 0x7;
-      registers[Rdn] = _addUpdateFlags(registers[Rdn], imm8);
-    }
-    // ADDS (register)
-    else if (opcode >> 9 == 0xc /* 0b0001100 */ ) {
-      final Rm = (opcode >> 6) & 0x7;
-      final Rn = (opcode >> 3) & 0x7;
-      final Rd = opcode & 0x7;
-      registers[Rd] = _addUpdateFlags(registers[Rn], registers[Rm]);
-    }
-    // ADD (register)
-    else if (opcode >> 8 == 0x44 /* 0b01000100 */ ) {
-      final Rm = (opcode >> 3) & 0xf;
-      final Rdn = ((opcode & 0x80) >> 4) | (opcode & 0x7);
-      final leftValue = Rdn == _pcRegister ? PC + 2 : registers[Rdn];
-      final rightValue = Rm == _pcRegister ? PC + 2 : registers[Rm];
-      final result = leftValue + rightValue;
-      if (Rdn != _spRegister && Rdn != _pcRegister) {
+    switch (kind) {
+      case 1: // ADCS
+        final Rm = (opcode >> 3) & 0x7;
+        final Rdn = opcode & 0x7;
+        registers[Rdn] = _addUpdateFlags(
+          registers[Rm],
+          registers[Rdn] + (C ? 1 : 0),
+        );
+      case 2: // ADD (register = SP plus immediate)
+        final imm8 = opcode & 0xff;
+        final Rd = (opcode >> 8) & 0x7;
+        registers[Rd] = SP + (imm8 << 2);
+      case 3: // ADD (SP plus immediate)
+        final imm32 = (opcode & 0x7f) << 2;
+        SP += imm32;
+      case 4: // ADDS (Encoding T1)
+        final imm3 = (opcode >> 6) & 0x7;
+        final Rn = (opcode >> 3) & 0x7;
+        final Rd = opcode & 0x7;
+        registers[Rd] = _addUpdateFlags(registers[Rn], imm3);
+      case 5: // ADDS (Encoding T2)
+        final imm8 = opcode & 0xff;
+        final Rdn = (opcode >> 8) & 0x7;
+        registers[Rdn] = _addUpdateFlags(registers[Rdn], imm8);
+      case 6: // ADDS (register)
+        final Rm = (opcode >> 6) & 0x7;
+        final Rn = (opcode >> 3) & 0x7;
+        final Rd = opcode & 0x7;
+        registers[Rd] = _addUpdateFlags(registers[Rn], registers[Rm]);
+      case 7: // ADD (register)
+        final Rm = (opcode >> 3) & 0xf;
+        final Rdn = ((opcode & 0x80) >> 4) | (opcode & 0x7);
+        final leftValue = Rdn == _pcRegister ? PC + 2 : registers[Rdn];
+        final rightValue = Rm == _pcRegister ? PC + 2 : registers[Rm];
+        final result = leftValue + rightValue;
+        if (Rdn != _spRegister && Rdn != _pcRegister) {
+          registers[Rdn] = result;
+        } else if (Rdn == _pcRegister) {
+          registers[Rdn] = result & ~0x1;
+          deltaCycles++;
+        } else if (Rdn == _spRegister) {
+          registers[Rdn] = result & ~0x3;
+        }
+      case 8: // ADR
+        final imm8 = opcode & 0xff;
+        final Rd = (opcode >> 8) & 0x7;
+        registers[Rd] = (opcodePC & 0xfffffffc) + 4 + (imm8 << 2);
+      case 9: // ANDS (Encoding T2)
+        final Rm = (opcode >> 3) & 0x7;
+        final Rdn = opcode & 0x7;
+        final result = registers[Rdn] & registers[Rm];
         registers[Rdn] = result;
-      } else if (Rdn == _pcRegister) {
-        registers[Rdn] = result & ~0x1;
-        deltaCycles++;
-      } else if (Rdn == _spRegister) {
-        registers[Rdn] = result & ~0x3;
-      }
-    }
-    // ADR
-    else if (opcode >> 11 == 0x14 /* 0b10100 */ ) {
-      final imm8 = opcode & 0xff;
-      final Rd = (opcode >> 8) & 0x7;
-      registers[Rd] = (opcodePC & 0xfffffffc) + 4 + (imm8 << 2);
-    }
-    // ANDS (Encoding T2)
-    else if (opcode >> 6 == 0x100 /* 0b0100000000 */ ) {
-      final Rm = (opcode >> 3) & 0x7;
-      final Rdn = opcode & 0x7;
-      final result = registers[Rdn] & registers[Rm];
-      registers[Rdn] = result;
-      N = result & 0x80000000 != 0;
-      Z = (result & 0xffffffff) == 0;
-    }
-    // ASRS (immediate)
-    else if (opcode >> 11 == 0x2 /* 0b00010 */ ) {
-      final imm5 = (opcode >> 6) & 0x1f;
-      final Rm = (opcode >> 3) & 0x7;
-      final Rd = opcode & 0x7;
-      final input = registers[Rm];
-      final shiftN = imm5 != 0 ? imm5 : 32;
-      final result = shiftN < 32
-          ? u32(s32(input) >> shiftN)
-          : u32(s32(input & 0x80000000) >> 31);
-      registers[Rd] = result;
-      N = result & 0x80000000 != 0;
-      Z = (result & 0xffffffff) == 0;
-      C = input & (1 << (shiftN - 1)) != 0 ? true : false;
-    }
-    // ASRS (register)
-    else if (opcode >> 6 == 0x104 /* 0b0100000100 */ ) {
-      final Rm = (opcode >> 3) & 0x7;
-      final Rdn = opcode & 0x7;
-      final input = registers[Rdn];
-      final shiftN = (registers[Rm] & 0xff) < 32 ? registers[Rm] & 0xff : 32;
-      final result = shiftN < 32
-          ? u32(s32(input) >> shiftN)
-          : u32(s32(input & 0x80000000) >> 31);
-      registers[Rdn] = result;
-      N = result & 0x80000000 != 0;
-      Z = (result & 0xffffffff) == 0;
-      // JS shift counts are mod 32: a shift of 0 tests bit 31
-      C = input & (1 << ((shiftN - 1) & 31)) != 0 ? true : false;
-    }
-    // B (with cond)
-    else if (opcode >> 12 == 0xd /* 0b1101 */ && ((opcode >> 9) & 0x7) != 0x7) {
-      var imm8 = (opcode & 0xff) << 1;
-      final cond = (opcode >> 8) & 0xf;
-      if (imm8 & (1 << 8) != 0) {
-        imm8 = (imm8 & 0x1ff) - 0x200;
-      }
-      if (checkCondition(cond)) {
-        PC += imm8 + 2;
-        deltaCycles++;
-      }
-    }
-    // B
-    else if (opcode >> 11 == 0x1c /* 0b11100 */ ) {
-      var imm11 = (opcode & 0x7ff) << 1;
-      if (imm11 & (1 << 11) != 0) {
-        imm11 = (imm11 & 0x7ff) - 0x800;
-      }
-      PC += imm11 + 2;
-      deltaCycles++;
-    }
-    // BICS
-    else if (opcode >> 6 == 0x10e /* 0b0100001110 */ ) {
-      final Rm = (opcode >> 3) & 0x7;
-      final Rdn = opcode & 0x7;
-      final result = registers[Rdn] & ~registers[Rm];
-      registers[Rdn] = result;
-      N = result & 0x80000000 != 0;
-      Z = result == 0;
-    }
-    // BKPT
-    else if (opcode >> 8 == 0xbe /* 0b10111110 */ ) {
-      final imm8 = opcode & 0xff;
-      breakRewind = 2;
-      rp2040.onBreak(imm8);
-    }
-    // BL
-    else if (opcode >> 11 == 0x1e /* 0b11110 */ &&
-        opcode2 >> 14 == 0x3 &&
-        ((opcode2 >> 12) & 0x1) == 1) {
-      final imm11 = opcode2 & 0x7ff;
-      final J2 = (opcode2 >> 11) & 0x1;
-      final J1 = (opcode2 >> 13) & 0x1;
-      final imm10 = opcode & 0x3ff;
-      final S = (opcode >> 10) & 0x1;
-      final I1 = 1 - (S ^ J1);
-      final I2 = 1 - (S ^ J2);
-      final imm32 = u32(
-        ((S != 0 ? 0xff : 0) << 24) |
-            ((I1 << 23) | (I2 << 22) | (imm10 << 12) | (imm11 << 1)),
-      );
-      LR = (PC + 2) | 0x1;
-      PC += 2 + imm32;
-      deltaCycles += 2;
-      blTaken(this, false);
-    }
-    // BLX
-    else if (opcode >> 7 == 0x8f /* 0b010001111 */ && (opcode & 0x7) == 0) {
-      final Rm = (opcode >> 3) & 0xf;
-      LR = PC | 0x1;
-      PC = registers[Rm] & ~1;
-      deltaCycles++;
-      blTaken(this, true);
-    }
-    // BX
-    else if (opcode >> 7 == 0x8e /* 0b010001110 */ && (opcode & 0x7) == 0) {
-      final Rm = (opcode >> 3) & 0xf;
-      BXWritePC(registers[Rm]);
-      deltaCycles++;
-    }
-    // CMN (register)
-    else if (opcode >> 6 == 0x10b /* 0b0100001011 */ ) {
-      final Rm = (opcode >> 3) & 0x7;
-      final Rn = opcode & 0x7;
-      _addUpdateFlags(registers[Rn], registers[Rm]);
-    }
-    // CMP immediate
-    else if (opcode >> 11 == 0x5 /* 0b00101 */ ) {
-      final Rn = (opcode >> 8) & 0x7;
-      final imm8 = opcode & 0xff;
-      _substractUpdateFlags(registers[Rn], imm8);
-    }
-    // CMP (register)
-    else if (opcode >> 6 == 0x10a /* 0b0100001010 */ ) {
-      final Rm = (opcode >> 3) & 0x7;
-      final Rn = opcode & 0x7;
-      _substractUpdateFlags(registers[Rn], registers[Rm]);
-    }
-    // CMP (register) encoding T2
-    else if (opcode >> 8 == 0x45 /* 0b01000101 */ ) {
-      final Rm = (opcode >> 3) & 0xf;
-      final Rn = ((opcode >> 4) & 0x8) | (opcode & 0x7);
-      _substractUpdateFlags(registers[Rn], registers[Rm]);
-    }
-    // CPSID i
-    else if (opcode == 0xb672) {
-      PM = true;
-    }
-    // CPSIE i
-    else if (opcode == 0xb662) {
-      PM = false;
-      interruptsUpdated = true;
-    }
-    // DMB SY
-    else if (opcode == 0xf3bf && (opcode2 & 0xfff0) == 0x8f50) {
-      PC += 2;
-      deltaCycles += 2;
-    }
-    // DSB SY
-    else if (opcode == 0xf3bf && (opcode2 & 0xfff0) == 0x8f40) {
-      PC += 2;
-      deltaCycles += 2;
-    }
-    // EORS
-    else if (opcode >> 6 == 0x101 /* 0b0100000001 */ ) {
-      final Rm = (opcode >> 3) & 0x7;
-      final Rdn = opcode & 0x7;
-      final result = registers[Rm] ^ registers[Rdn];
-      registers[Rdn] = result;
-      N = result & 0x80000000 != 0;
-      Z = result == 0;
-    }
-    // ISB SY
-    else if (opcode == 0xf3bf && (opcode2 & 0xfff0) == 0x8f60) {
-      PC += 2;
-      deltaCycles += 2;
-    }
-    // LDMIA
-    else if (opcode >> 11 == 0x19 /* 0b11001 */ ) {
-      final Rn = (opcode >> 8) & 0x7;
-      final registers = opcode & 0xff;
-      var address = this.registers[Rn];
-      for (var i = 0; i < 8; i++) {
-        if (registers & (1 << i) != 0) {
-          this.registers[i] = readUint32(address);
-          address += 4;
+        N = result & 0x80000000 != 0;
+        Z = (result & 0xffffffff) == 0;
+      case 10: // ASRS (immediate)
+        final imm5 = (opcode >> 6) & 0x1f;
+        final Rm = (opcode >> 3) & 0x7;
+        final Rd = opcode & 0x7;
+        final input = registers[Rm];
+        final shiftN = imm5 != 0 ? imm5 : 32;
+        final result = shiftN < 32
+            ? u32(s32(input) >> shiftN)
+            : u32(s32(input & 0x80000000) >> 31);
+        registers[Rd] = result;
+        N = result & 0x80000000 != 0;
+        Z = (result & 0xffffffff) == 0;
+        C = input & (1 << (shiftN - 1)) != 0 ? true : false;
+      case 11: // ASRS (register)
+        final Rm = (opcode >> 3) & 0x7;
+        final Rdn = opcode & 0x7;
+        final input = registers[Rdn];
+        final shiftN = (registers[Rm] & 0xff) < 32 ? registers[Rm] & 0xff : 32;
+        final result = shiftN < 32
+            ? u32(s32(input) >> shiftN)
+            : u32(s32(input & 0x80000000) >> 31);
+        registers[Rdn] = result;
+        N = result & 0x80000000 != 0;
+        Z = (result & 0xffffffff) == 0;
+        // JS shift counts are mod 32: a shift of 0 tests bit 31
+        C = input & (1 << ((shiftN - 1) & 31)) != 0 ? true : false;
+      case 12: // B (with cond)
+        var imm8 = (opcode & 0xff) << 1;
+        final cond = (opcode >> 8) & 0xf;
+        if (imm8 & (1 << 8) != 0) {
+          imm8 = (imm8 & 0x1ff) - 0x200;
+        }
+        if (checkCondition(cond)) {
+          PC += imm8 + 2;
           deltaCycles++;
         }
-      }
-      // Write back
-      if (registers & (1 << Rn) == 0) {
-        this.registers[Rn] = address;
-      }
-    }
-    // LDR (immediate)
-    else if (opcode >> 11 == 0xd /* 0b01101 */ ) {
-      final imm5 = ((opcode >> 6) & 0x1f) << 2;
-      final Rn = (opcode >> 3) & 0x7;
-      final Rt = opcode & 0x7;
-      final addr = registers[Rn] + imm5;
-      deltaCycles += cyclesIO(addr);
-      registers[Rt] = readUint32(addr);
-    }
-    // LDR (sp + immediate)
-    else if (opcode >> 11 == 0x13 /* 0b10011 */ ) {
-      final Rt = (opcode >> 8) & 0x7;
-      final imm8 = opcode & 0xff;
-      final addr = SP + (imm8 << 2);
-      deltaCycles += cyclesIO(addr);
-      registers[Rt] = readUint32(addr);
-    }
-    // LDR (literal)
-    else if (opcode >> 11 == 0x9 /* 0b01001 */ ) {
-      final imm8 = (opcode & 0xff) << 2;
-      final Rt = (opcode >> 8) & 7;
-      final nextPC = PC + 2;
-      final addr = (nextPC & 0xfffffffc) + imm8;
-      deltaCycles += cyclesIO(addr);
-      registers[Rt] = readUint32(addr);
-    }
-    // LDR (register)
-    else if (opcode >> 9 == 0x2c /* 0b0101100 */ ) {
-      final Rm = (opcode >> 6) & 0x7;
-      final Rn = (opcode >> 3) & 0x7;
-      final Rt = opcode & 0x7;
-      final addr = registers[Rm] + registers[Rn];
-      deltaCycles += cyclesIO(addr);
-      registers[Rt] = readUint32(addr);
-    }
-    // LDRB (immediate)
-    else if (opcode >> 11 == 0xf /* 0b01111 */ ) {
-      final imm5 = (opcode >> 6) & 0x1f;
-      final Rn = (opcode >> 3) & 0x7;
-      final Rt = opcode & 0x7;
-      final addr = registers[Rn] + imm5;
-      deltaCycles += cyclesIO(addr);
-      registers[Rt] = readUint8(addr);
-    }
-    // LDRB (register)
-    else if (opcode >> 9 == 0x2e /* 0b0101110 */ ) {
-      final Rm = (opcode >> 6) & 0x7;
-      final Rn = (opcode >> 3) & 0x7;
-      final Rt = opcode & 0x7;
-      final addr = registers[Rm] + registers[Rn];
-      deltaCycles += cyclesIO(addr);
-      registers[Rt] = readUint8(addr);
-    }
-    // LDRH (immediate)
-    else if (opcode >> 11 == 0x11 /* 0b10001 */ ) {
-      final imm5 = (opcode >> 6) & 0x1f;
-      final Rn = (opcode >> 3) & 0x7;
-      final Rt = opcode & 0x7;
-      final addr = registers[Rn] + (imm5 << 1);
-      deltaCycles += cyclesIO(addr);
-      registers[Rt] = readUint16(addr);
-    }
-    // LDRH (register)
-    else if (opcode >> 9 == 0x2d /* 0b0101101 */ ) {
-      final Rm = (opcode >> 6) & 0x7;
-      final Rn = (opcode >> 3) & 0x7;
-      final Rt = opcode & 0x7;
-      final addr = registers[Rm] + registers[Rn];
-      deltaCycles += cyclesIO(addr);
-      registers[Rt] = readUint16(addr);
-    }
-    // LDRSB
-    else if (opcode >> 9 == 0x2b /* 0b0101011 */ ) {
-      final Rm = (opcode >> 6) & 0x7;
-      final Rn = (opcode >> 3) & 0x7;
-      final Rt = opcode & 0x7;
-      final addr = registers[Rm] + registers[Rn];
-      deltaCycles += cyclesIO(addr);
-      registers[Rt] = _signExtend8(readUint8(addr));
-    }
-    // LDRSH
-    else if (opcode >> 9 == 0x2f /* 0b0101111 */ ) {
-      final Rm = (opcode >> 6) & 0x7;
-      final Rn = (opcode >> 3) & 0x7;
-      final Rt = opcode & 0x7;
-      final addr = registers[Rm] + registers[Rn];
-      deltaCycles += cyclesIO(addr);
-      registers[Rt] = _signExtend16(readUint16(addr));
-    }
-    // LSLS (immediate)
-    else if (opcode >> 11 == 0x0 /* 0b00000 */ ) {
-      final imm5 = (opcode >> 6) & 0x1f;
-      final Rm = (opcode >> 3) & 0x7;
-      final Rd = opcode & 0x7;
-      final input = registers[Rm];
-      final result = u32(input << imm5);
-      registers[Rd] = result;
-      N = result & 0x80000000 != 0;
-      Z = result == 0;
-      C = imm5 != 0 ? input & (1 << (32 - imm5)) != 0 : C;
-    }
-    // LSLS (register)
-    else if (opcode >> 6 == 0x102 /* 0b0100000010 */ ) {
-      final Rm = (opcode >> 3) & 0x7;
-      final Rdn = opcode & 0x7;
-      final input = registers[Rdn];
-      final shiftCount = registers[Rm] & 0xff;
-      final result = shiftCount >= 32 ? 0 : u32(input << shiftCount);
-      registers[Rdn] = result;
-      N = result & 0x80000000 != 0;
-      Z = result == 0;
-      // JS shift counts are mod 32 (a count of 32 tests bit 0)
-      C = shiftCount != 0 ? input & (1 << ((32 - shiftCount) & 31)) != 0 : C;
-    }
-    // LSRS (immediate)
-    else if (opcode >> 11 == 0x1 /* 0b00001 */ ) {
-      final imm5 = (opcode >> 6) & 0x1f;
-      final Rm = (opcode >> 3) & 0x7;
-      final Rd = opcode & 0x7;
-      final input = registers[Rm];
-      final result = imm5 != 0 ? input >>> imm5 : 0;
-      registers[Rd] = result;
-      N = result & 0x80000000 != 0;
-      Z = result == 0;
-      C = (input >>> (imm5 != 0 ? imm5 - 1 : 31)) & 0x1 != 0;
-    }
-    // LSRS (register)
-    else if (opcode >> 6 == 0x103 /* 0b0100000011 */ ) {
-      final Rm = (opcode >> 3) & 0x7;
-      final Rdn = opcode & 0x7;
-      final shiftAmount = registers[Rm] & 0xff;
-      final input = registers[Rdn];
-      final result = shiftAmount < 32 ? input >>> shiftAmount : 0;
-      registers[Rdn] = result;
-      N = result & 0x80000000 != 0;
-      Z = result == 0;
-      // JS shift counts are mod 32 (a count of 0 tests bit 31)
-      C = shiftAmount <= 32
-          ? (input >>> ((shiftAmount - 1) & 31)) & 0x1 != 0
-          : false;
-    }
-    // MOV
-    else if (opcode >> 8 == 0x46 /* 0b01000110 */ ) {
-      final Rm = (opcode >> 3) & 0xf;
-      final Rd = ((opcode >> 4) & 0x8) | (opcode & 0x7);
-      var value = Rm == _pcRegister ? PC + 2 : registers[Rm];
-      if (Rd == _pcRegister) {
-        deltaCycles++;
-        value &= ~1;
-      } else if (Rd == _spRegister) {
-        value &= ~3;
-      }
-      registers[Rd] = value;
-    }
-    // MOVS
-    else if (opcode >> 11 == 0x4 /* 0b00100 */ ) {
-      final value = opcode & 0xff;
-      final Rd = (opcode >> 8) & 7;
-      registers[Rd] = value;
-      N = value & 0x80000000 != 0;
-      Z = value == 0;
-    }
-    // MRS
-    else if (opcode == 0xf3ef /* 0b1111001111101111 */ &&
-        opcode2 >> 12 == 0x8) {
-      final SYSm = opcode2 & 0xff;
-      final Rd = (opcode2 >> 8) & 0xf;
-      registers[Rd] = readSpecialRegister(SYSm);
-      PC += 2;
-      deltaCycles += 2;
-    }
-    // MSR
-    else if (opcode >> 4 == 0xf38 /* 0b111100111000 */ &&
-        opcode2 >> 8 == 0x88 /* 0b10001000 */ ) {
-      final SYSm = opcode2 & 0xff;
-      final Rn = opcode & 0xf;
-      writeSpecialRegister(SYSm, registers[Rn]);
-      PC += 2;
-      deltaCycles += 2;
-    }
-    // MULS
-    else if (opcode >> 6 == 0x10d /* 0b0100001101 */ ) {
-      final Rn = (opcode >> 3) & 0x7;
-      final Rdm = opcode & 0x7;
-      final result = imul(registers[Rn], registers[Rdm]);
-      registers[Rdm] = result;
-      N = result & 0x80000000 != 0;
-      Z = (result & 0xffffffff) == 0;
-    }
-    // MVNS
-    else if (opcode >> 6 == 0x10f /* 0b0100001111 */ ) {
-      final Rm = (opcode >> 3) & 7;
-      final Rd = opcode & 7;
-      final result = u32(~registers[Rm]);
-      registers[Rd] = result;
-      N = result & 0x80000000 != 0;
-      Z = result == 0;
-    }
-    // ORRS (Encoding T2)
-    else if (opcode >> 6 == 0x10c /* 0b0100001100 */ ) {
-      final Rm = (opcode >> 3) & 0x7;
-      final Rdn = opcode & 0x7;
-      final result = registers[Rdn] | registers[Rm];
-      registers[Rdn] = result;
-      N = result & 0x80000000 != 0;
-      Z = (result & 0xffffffff) == 0;
-    }
-    // POP
-    else if (opcode >> 9 == 0x5e /* 0b1011110 */ ) {
-      final P = (opcode >> 8) & 1;
-      var address = SP;
-      for (var i = 0; i <= 7; i++) {
-        if (opcode & (1 << i) != 0) {
-          registers[i] = readUint32(address);
-          address += 4;
-          deltaCycles++;
+      case 13: // B
+        var imm11 = (opcode & 0x7ff) << 1;
+        if (imm11 & (1 << 11) != 0) {
+          imm11 = (imm11 & 0x7ff) - 0x800;
         }
-      }
-      if (P != 0) {
-        SP = address + 4;
-        BXWritePC(readUint32(address));
+        PC += imm11 + 2;
+        deltaCycles++;
+      case 14: // BICS
+        final Rm = (opcode >> 3) & 0x7;
+        final Rdn = opcode & 0x7;
+        final result = registers[Rdn] & ~registers[Rm];
+        registers[Rdn] = result;
+        N = result & 0x80000000 != 0;
+        Z = result == 0;
+      case 15: // BKPT
+        final imm8 = opcode & 0xff;
+        breakRewind = 2;
+        rp2040.onBreak(imm8);
+      case 16: // BL
+        final imm11 = opcode2 & 0x7ff;
+        final J2 = (opcode2 >> 11) & 0x1;
+        final J1 = (opcode2 >> 13) & 0x1;
+        final imm10 = opcode & 0x3ff;
+        final S = (opcode >> 10) & 0x1;
+        final I1 = 1 - (S ^ J1);
+        final I2 = 1 - (S ^ J2);
+        final imm32 = u32(
+          ((S != 0 ? 0xff : 0) << 24) |
+              ((I1 << 23) | (I2 << 22) | (imm10 << 12) | (imm11 << 1)),
+        );
+        LR = (PC + 2) | 0x1;
+        PC += 2 + imm32;
         deltaCycles += 2;
-      } else {
-        SP = address;
-      }
-    }
-    // PUSH
-    else if (opcode >> 9 == 0x5a /* 0b1011010 */ ) {
-      var bitCount = 0;
-      for (var i = 0; i <= 8; i++) {
-        if (opcode & (1 << i) != 0) {
-          bitCount++;
+        blTaken(this, false);
+      case 17: // BLX
+        final Rm = (opcode >> 3) & 0xf;
+        LR = PC | 0x1;
+        PC = registers[Rm] & ~1;
+        deltaCycles++;
+        blTaken(this, true);
+      case 18: // BX
+        final Rm = (opcode >> 3) & 0xf;
+        BXWritePC(registers[Rm]);
+        deltaCycles++;
+      case 19: // CMN (register)
+        final Rm = (opcode >> 3) & 0x7;
+        final Rn = opcode & 0x7;
+        _addUpdateFlags(registers[Rn], registers[Rm]);
+      case 20: // CMP immediate
+        final Rn = (opcode >> 8) & 0x7;
+        final imm8 = opcode & 0xff;
+        _substractUpdateFlags(registers[Rn], imm8);
+      case 21: // CMP (register)
+        final Rm = (opcode >> 3) & 0x7;
+        final Rn = opcode & 0x7;
+        _substractUpdateFlags(registers[Rn], registers[Rm]);
+      case 22: // CMP (register) encoding T2
+        final Rm = (opcode >> 3) & 0xf;
+        final Rn = ((opcode >> 4) & 0x8) | (opcode & 0x7);
+        _substractUpdateFlags(registers[Rn], registers[Rm]);
+      case 23: // CPSID i
+        PM = true;
+      case 24: // CPSIE i
+        PM = false;
+        interruptsUpdated = true;
+      case 25: // DMB SY
+        PC += 2;
+        deltaCycles += 2;
+      case 26: // DSB SY
+        PC += 2;
+        deltaCycles += 2;
+      case 27: // EORS
+        final Rm = (opcode >> 3) & 0x7;
+        final Rdn = opcode & 0x7;
+        final result = registers[Rm] ^ registers[Rdn];
+        registers[Rdn] = result;
+        N = result & 0x80000000 != 0;
+        Z = result == 0;
+      case 28: // ISB SY
+        PC += 2;
+        deltaCycles += 2;
+      case 29: // LDMIA
+        final Rn = (opcode >> 8) & 0x7;
+        final registers = opcode & 0xff;
+        var address = this.registers[Rn];
+        for (var i = 0; i < 8; i++) {
+          if (registers & (1 << i) != 0) {
+            this.registers[i] = readUint32(address);
+            address += 4;
+            deltaCycles++;
+          }
         }
-      }
-      var address = SP - 4 * bitCount;
-      for (var i = 0; i <= 7; i++) {
-        if (opcode & (1 << i) != 0) {
-          writeUint32(address, registers[i]);
+        // Write back
+        if (registers & (1 << Rn) == 0) {
+          this.registers[Rn] = address;
+        }
+      case 30: // LDR (immediate)
+        final imm5 = ((opcode >> 6) & 0x1f) << 2;
+        final Rn = (opcode >> 3) & 0x7;
+        final Rt = opcode & 0x7;
+        final addr = registers[Rn] + imm5;
+        deltaCycles += cyclesIO(addr);
+        registers[Rt] = readUint32(addr);
+      case 31: // LDR (sp + immediate)
+        final Rt = (opcode >> 8) & 0x7;
+        final imm8 = opcode & 0xff;
+        final addr = SP + (imm8 << 2);
+        deltaCycles += cyclesIO(addr);
+        registers[Rt] = readUint32(addr);
+      case 32: // LDR (literal)
+        final imm8 = (opcode & 0xff) << 2;
+        final Rt = (opcode >> 8) & 7;
+        final nextPC = PC + 2;
+        final addr = (nextPC & 0xfffffffc) + imm8;
+        deltaCycles += cyclesIO(addr);
+        registers[Rt] = readUint32(addr);
+      case 33: // LDR (register)
+        final Rm = (opcode >> 6) & 0x7;
+        final Rn = (opcode >> 3) & 0x7;
+        final Rt = opcode & 0x7;
+        final addr = registers[Rm] + registers[Rn];
+        deltaCycles += cyclesIO(addr);
+        registers[Rt] = readUint32(addr);
+      case 34: // LDRB (immediate)
+        final imm5 = (opcode >> 6) & 0x1f;
+        final Rn = (opcode >> 3) & 0x7;
+        final Rt = opcode & 0x7;
+        final addr = registers[Rn] + imm5;
+        deltaCycles += cyclesIO(addr);
+        registers[Rt] = readUint8(addr);
+      case 35: // LDRB (register)
+        final Rm = (opcode >> 6) & 0x7;
+        final Rn = (opcode >> 3) & 0x7;
+        final Rt = opcode & 0x7;
+        final addr = registers[Rm] + registers[Rn];
+        deltaCycles += cyclesIO(addr);
+        registers[Rt] = readUint8(addr);
+      case 36: // LDRH (immediate)
+        final imm5 = (opcode >> 6) & 0x1f;
+        final Rn = (opcode >> 3) & 0x7;
+        final Rt = opcode & 0x7;
+        final addr = registers[Rn] + (imm5 << 1);
+        deltaCycles += cyclesIO(addr);
+        registers[Rt] = readUint16(addr);
+      case 37: // LDRH (register)
+        final Rm = (opcode >> 6) & 0x7;
+        final Rn = (opcode >> 3) & 0x7;
+        final Rt = opcode & 0x7;
+        final addr = registers[Rm] + registers[Rn];
+        deltaCycles += cyclesIO(addr);
+        registers[Rt] = readUint16(addr);
+      case 38: // LDRSB
+        final Rm = (opcode >> 6) & 0x7;
+        final Rn = (opcode >> 3) & 0x7;
+        final Rt = opcode & 0x7;
+        final addr = registers[Rm] + registers[Rn];
+        deltaCycles += cyclesIO(addr);
+        registers[Rt] = _signExtend8(readUint8(addr));
+      case 39: // LDRSH
+        final Rm = (opcode >> 6) & 0x7;
+        final Rn = (opcode >> 3) & 0x7;
+        final Rt = opcode & 0x7;
+        final addr = registers[Rm] + registers[Rn];
+        deltaCycles += cyclesIO(addr);
+        registers[Rt] = _signExtend16(readUint16(addr));
+      case 40: // LSLS (immediate)
+        final imm5 = (opcode >> 6) & 0x1f;
+        final Rm = (opcode >> 3) & 0x7;
+        final Rd = opcode & 0x7;
+        final input = registers[Rm];
+        final result = u32(input << imm5);
+        registers[Rd] = result;
+        N = result & 0x80000000 != 0;
+        Z = result == 0;
+        C = imm5 != 0 ? input & (1 << (32 - imm5)) != 0 : C;
+      case 41: // LSLS (register)
+        final Rm = (opcode >> 3) & 0x7;
+        final Rdn = opcode & 0x7;
+        final input = registers[Rdn];
+        final shiftCount = registers[Rm] & 0xff;
+        final result = shiftCount >= 32 ? 0 : u32(input << shiftCount);
+        registers[Rdn] = result;
+        N = result & 0x80000000 != 0;
+        Z = result == 0;
+        // JS shift counts are mod 32 (a count of 32 tests bit 0)
+        C = shiftCount != 0 ? input & (1 << ((32 - shiftCount) & 31)) != 0 : C;
+      case 42: // LSRS (immediate)
+        final imm5 = (opcode >> 6) & 0x1f;
+        final Rm = (opcode >> 3) & 0x7;
+        final Rd = opcode & 0x7;
+        final input = registers[Rm];
+        final result = imm5 != 0 ? input >>> imm5 : 0;
+        registers[Rd] = result;
+        N = result & 0x80000000 != 0;
+        Z = result == 0;
+        C = (input >>> (imm5 != 0 ? imm5 - 1 : 31)) & 0x1 != 0;
+      case 43: // LSRS (register)
+        final Rm = (opcode >> 3) & 0x7;
+        final Rdn = opcode & 0x7;
+        final shiftAmount = registers[Rm] & 0xff;
+        final input = registers[Rdn];
+        final result = shiftAmount < 32 ? input >>> shiftAmount : 0;
+        registers[Rdn] = result;
+        N = result & 0x80000000 != 0;
+        Z = result == 0;
+        // JS shift counts are mod 32 (a count of 0 tests bit 31)
+        C = shiftAmount <= 32
+            ? (input >>> ((shiftAmount - 1) & 31)) & 0x1 != 0
+            : false;
+      case 44: // MOV
+        final Rm = (opcode >> 3) & 0xf;
+        final Rd = ((opcode >> 4) & 0x8) | (opcode & 0x7);
+        var value = Rm == _pcRegister ? PC + 2 : registers[Rm];
+        if (Rd == _pcRegister) {
           deltaCycles++;
-          address += 4;
+          value &= ~1;
+        } else if (Rd == _spRegister) {
+          value &= ~3;
         }
-      }
-      if (opcode & (1 << 8) != 0) {
-        writeUint32(address, registers[14]);
-      }
-      SP -= 4 * bitCount;
-    }
-    // REV
-    else if (opcode >> 6 == 0x2e8 /* 0b1011101000 */ ) {
-      final Rm = (opcode >> 3) & 0x7;
-      final Rd = opcode & 0x7;
-      final input = registers[Rm];
-      registers[Rd] = u32(
-        ((input & 0xff) << 24) |
-            (((input >> 8) & 0xff) << 16) |
-            (((input >> 16) & 0xff) << 8) |
-            ((input >> 24) & 0xff),
-      );
-    }
-    // REV16
-    else if (opcode >> 6 == 0x2e9 /* 0b1011101001 */ ) {
-      final Rm = (opcode >> 3) & 0x7;
-      final Rd = opcode & 0x7;
-      final input = registers[Rm];
-      registers[Rd] = u32(
-        (((input >> 16) & 0xff) << 24) |
-            (((input >> 24) & 0xff) << 16) |
-            ((input & 0xff) << 8) |
-            ((input >> 8) & 0xff),
-      );
-    }
-    // REVSH
-    else if (opcode >> 6 == 0x2eb /* 0b1011101011 */ ) {
-      final Rm = (opcode >> 3) & 0x7;
-      final Rd = opcode & 0x7;
-      final input = registers[Rm];
-      registers[Rd] = _signExtend16(
-        ((input & 0xff) << 8) | ((input >> 8) & 0xff),
-      );
-    }
-    // ROR
-    else if (opcode >> 6 == 0x107 /* 0b0100000111 */ ) {
-      final Rm = (opcode >> 3) & 0x7;
-      final Rdn = opcode & 0x7;
-      final input = registers[Rdn];
-      final shift = (registers[Rm] & 0xff) % 32;
-      // JS shift counts are mod 32 (a shift of 0 leaves the input as it is)
-      final result = u32((input >>> shift) | (input << ((32 - shift) & 31)));
-      registers[Rdn] = result;
-      N = result & 0x80000000 != 0;
-      Z = result == 0;
-      C = result & 0x80000000 != 0;
-    }
-    // NEGS / RSBS
-    else if (opcode >> 6 == 0x109 /* 0b0100001001 */ ) {
-      final Rn = (opcode >> 3) & 0x7;
-      final Rd = opcode & 0x7;
-      registers[Rd] = _substractUpdateFlags(0, registers[Rn]);
-    }
-    // NOP
-    else if (opcode == 0xbf00 /* 0b1011111100000000 */ ) {
+        registers[Rd] = value;
+      case 45: // MOVS
+        final value = opcode & 0xff;
+        final Rd = (opcode >> 8) & 7;
+        registers[Rd] = value;
+        N = value & 0x80000000 != 0;
+        Z = value == 0;
+      case 46: // MRS
+        final SYSm = opcode2 & 0xff;
+        final Rd = (opcode2 >> 8) & 0xf;
+        registers[Rd] = readSpecialRegister(SYSm);
+        PC += 2;
+        deltaCycles += 2;
+      case 47: // MSR
+        final SYSm = opcode2 & 0xff;
+        final Rn = opcode & 0xf;
+        writeSpecialRegister(SYSm, registers[Rn]);
+        PC += 2;
+        deltaCycles += 2;
+      case 48: // MULS
+        final Rn = (opcode >> 3) & 0x7;
+        final Rdm = opcode & 0x7;
+        final result = imul(registers[Rn], registers[Rdm]);
+        registers[Rdm] = result;
+        N = result & 0x80000000 != 0;
+        Z = (result & 0xffffffff) == 0;
+      case 49: // MVNS
+        final Rm = (opcode >> 3) & 7;
+        final Rd = opcode & 7;
+        final result = u32(~registers[Rm]);
+        registers[Rd] = result;
+        N = result & 0x80000000 != 0;
+        Z = result == 0;
+      case 50: // ORRS (Encoding T2)
+        final Rm = (opcode >> 3) & 0x7;
+        final Rdn = opcode & 0x7;
+        final result = registers[Rdn] | registers[Rm];
+        registers[Rdn] = result;
+        N = result & 0x80000000 != 0;
+        Z = (result & 0xffffffff) == 0;
+      case 51: // POP
+        final P = (opcode >> 8) & 1;
+        var address = SP;
+        for (var i = 0; i <= 7; i++) {
+          if (opcode & (1 << i) != 0) {
+            registers[i] = readUint32(address);
+            address += 4;
+            deltaCycles++;
+          }
+        }
+        if (P != 0) {
+          SP = address + 4;
+          BXWritePC(readUint32(address));
+          deltaCycles += 2;
+        } else {
+          SP = address;
+        }
+      case 52: // PUSH
+        var bitCount = 0;
+        for (var i = 0; i <= 8; i++) {
+          if (opcode & (1 << i) != 0) {
+            bitCount++;
+          }
+        }
+        var address = SP - 4 * bitCount;
+        for (var i = 0; i <= 7; i++) {
+          if (opcode & (1 << i) != 0) {
+            writeUint32(address, registers[i]);
+            deltaCycles++;
+            address += 4;
+          }
+        }
+        if (opcode & (1 << 8) != 0) {
+          writeUint32(address, registers[14]);
+        }
+        SP -= 4 * bitCount;
+      case 53: // REV
+        final Rm = (opcode >> 3) & 0x7;
+        final Rd = opcode & 0x7;
+        final input = registers[Rm];
+        registers[Rd] = u32(
+          ((input & 0xff) << 24) |
+              (((input >> 8) & 0xff) << 16) |
+              (((input >> 16) & 0xff) << 8) |
+              ((input >> 24) & 0xff),
+        );
+      case 54: // REV16
+        final Rm = (opcode >> 3) & 0x7;
+        final Rd = opcode & 0x7;
+        final input = registers[Rm];
+        registers[Rd] = u32(
+          (((input >> 16) & 0xff) << 24) |
+              (((input >> 24) & 0xff) << 16) |
+              ((input & 0xff) << 8) |
+              ((input >> 8) & 0xff),
+        );
+      case 55: // REVSH
+        final Rm = (opcode >> 3) & 0x7;
+        final Rd = opcode & 0x7;
+        final input = registers[Rm];
+        registers[Rd] = _signExtend16(
+          ((input & 0xff) << 8) | ((input >> 8) & 0xff),
+        );
+      case 56: // ROR
+        final Rm = (opcode >> 3) & 0x7;
+        final Rdn = opcode & 0x7;
+        final input = registers[Rdn];
+        final shift = (registers[Rm] & 0xff) % 32;
+        // JS shift counts are mod 32 (a shift of 0 leaves the input as it is)
+        final result = u32((input >>> shift) | (input << ((32 - shift) & 31)));
+        registers[Rdn] = result;
+        N = result & 0x80000000 != 0;
+        Z = result == 0;
+        C = result & 0x80000000 != 0;
+      case 57: // NEGS / RSBS
+        final Rn = (opcode >> 3) & 0x7;
+        final Rd = opcode & 0x7;
+        registers[Rd] = _substractUpdateFlags(0, registers[Rn]);
+      case 58: // NOP
       // Do nothing!
-    }
-    // SBCS (Encoding T1)
-    else if (opcode >> 6 == 0x106 /* 0b0100000110 */ ) {
-      final Rm = (opcode >> 3) & 0x7;
-      final Rdn = opcode & 0x7;
-      registers[Rdn] = _substractUpdateFlags(
-        registers[Rdn],
-        registers[Rm] + (1 - (C ? 1 : 0)),
-      );
-    }
-    // SEV
-    else if (opcode == 0xbf40 /* 0b1011111101000000 */ ) {
-      logger.info(_LOG_NAME, 'SEV');
-    }
-    // STMIA
-    else if (opcode >> 11 == 0x18 /* 0b11000 */ ) {
-      final Rn = (opcode >> 8) & 0x7;
-      final registers = opcode & 0xff;
-      var address = this.registers[Rn];
-      for (var i = 0; i < 8; i++) {
-        if (registers & (1 << i) != 0) {
-          writeUint32(address, this.registers[i]);
-          address += 4;
-          deltaCycles++;
+      case 59: // SBCS (Encoding T1)
+        final Rm = (opcode >> 3) & 0x7;
+        final Rdn = opcode & 0x7;
+        registers[Rdn] = _substractUpdateFlags(
+          registers[Rdn],
+          registers[Rm] + (1 - (C ? 1 : 0)),
+        );
+      case 60: // SEV
+        logger.info(_LOG_NAME, 'SEV');
+      case 61: // STMIA
+        final Rn = (opcode >> 8) & 0x7;
+        final registers = opcode & 0xff;
+        var address = this.registers[Rn];
+        for (var i = 0; i < 8; i++) {
+          if (registers & (1 << i) != 0) {
+            writeUint32(address, this.registers[i]);
+            address += 4;
+            deltaCycles++;
+          }
         }
-      }
-      // Write back
-      if (registers & (1 << Rn) == 0) {
-        this.registers[Rn] = address;
-      }
-    }
-    // STR (immediate)
-    else if (opcode >> 11 == 0xc /* 0b01100 */ ) {
-      final imm5 = ((opcode >> 6) & 0x1f) << 2;
-      final Rn = (opcode >> 3) & 0x7;
-      final Rt = opcode & 0x7;
-      final address = registers[Rn] + imm5;
-      deltaCycles += cyclesIO(address, true);
-      writeUint32(address, registers[Rt]);
-    }
-    // STR (sp + immediate)
-    else if (opcode >> 11 == 0x12 /* 0b10010 */ ) {
-      final Rt = (opcode >> 8) & 0x7;
-      final imm8 = opcode & 0xff;
-      final address = SP + (imm8 << 2);
-      deltaCycles += cyclesIO(address, true);
-      writeUint32(address, registers[Rt]);
-    }
-    // STR (register)
-    else if (opcode >> 9 == 0x28 /* 0b0101000 */ ) {
-      final Rm = (opcode >> 6) & 0x7;
-      final Rn = (opcode >> 3) & 0x7;
-      final Rt = opcode & 0x7;
-      final address = registers[Rm] + registers[Rn];
-      deltaCycles += cyclesIO(address, true);
-      writeUint32(address, registers[Rt]);
-    }
-    // STRB (immediate)
-    else if (opcode >> 11 == 0xe /* 0b01110 */ ) {
-      final imm5 = (opcode >> 6) & 0x1f;
-      final Rn = (opcode >> 3) & 0x7;
-      final Rt = opcode & 0x7;
-      final address = registers[Rn] + imm5;
-      deltaCycles += cyclesIO(address, true);
-      writeUint8(address, registers[Rt]);
-    }
-    // STRB (register)
-    else if (opcode >> 9 == 0x2a /* 0b0101010 */ ) {
-      final Rm = (opcode >> 6) & 0x7;
-      final Rn = (opcode >> 3) & 0x7;
-      final Rt = opcode & 0x7;
-      final address = registers[Rm] + registers[Rn];
-      deltaCycles += cyclesIO(address, true);
-      writeUint8(address, registers[Rt]);
-    }
-    // STRH (immediate)
-    else if (opcode >> 11 == 0x10 /* 0b10000 */ ) {
-      final imm5 = ((opcode >> 6) & 0x1f) << 1;
-      final Rn = (opcode >> 3) & 0x7;
-      final Rt = opcode & 0x7;
-      final address = registers[Rn] + imm5;
-      deltaCycles += cyclesIO(address, true);
-      writeUint16(address, registers[Rt]);
-    }
-    // STRH (register)
-    else if (opcode >> 9 == 0x29 /* 0b0101001 */ ) {
-      final Rm = (opcode >> 6) & 0x7;
-      final Rn = (opcode >> 3) & 0x7;
-      final Rt = opcode & 0x7;
-      final address = registers[Rm] + registers[Rn];
-      deltaCycles += cyclesIO(address, true);
-      writeUint16(address, registers[Rt]);
-    }
-    // SUB (SP minus immediate)
-    else if (opcode >> 7 == 0x161 /* 0b101100001 */ ) {
-      final imm32 = (opcode & 0x7f) << 2;
-      SP -= imm32;
-    }
-    // SUBS (Encoding T1)
-    else if (opcode >> 9 == 0xf /* 0b0001111 */ ) {
-      final imm3 = (opcode >> 6) & 0x7;
-      final Rn = (opcode >> 3) & 0x7;
-      final Rd = opcode & 0x7;
-      registers[Rd] = _substractUpdateFlags(registers[Rn], imm3);
-    }
-    // SUBS (Encoding T2)
-    else if (opcode >> 11 == 0x7 /* 0b00111 */ ) {
-      final imm8 = opcode & 0xff;
-      final Rdn = (opcode >> 8) & 0x7;
-      registers[Rdn] = _substractUpdateFlags(registers[Rdn], imm8);
-    }
-    // SUBS (register)
-    else if (opcode >> 9 == 0xd /* 0b0001101 */ ) {
-      final Rm = (opcode >> 6) & 0x7;
-      final Rn = (opcode >> 3) & 0x7;
-      final Rd = opcode & 0x7;
-      registers[Rd] = _substractUpdateFlags(registers[Rn], registers[Rm]);
-    }
-    // SVC
-    else if (opcode >> 8 == 0xdf /* 0b11011111 */ ) {
-      pendingSVCall = true;
-      interruptsUpdated = true;
-    }
-    // SXTB
-    else if (opcode >> 6 == 0x2c9 /* 0b1011001001 */ ) {
-      final Rm = (opcode >> 3) & 0x7;
-      final Rd = opcode & 0x7;
-      registers[Rd] = _signExtend8(registers[Rm]);
-    }
-    // SXTH
-    else if (opcode >> 6 == 0x2c8 /* 0b1011001000 */ ) {
-      final Rm = (opcode >> 3) & 0x7;
-      final Rd = opcode & 0x7;
-      registers[Rd] = _signExtend16(registers[Rm]);
-    }
-    // TST
-    else if (opcode >> 6 == 0x108 /* 0b0100001000 */ ) {
-      final Rm = (opcode >> 3) & 0x7;
-      final Rn = opcode & 0x7;
-      final result = registers[Rn] & registers[Rm];
-      N = result & 0x80000000 != 0;
-      Z = result == 0;
-    }
-    // UDF
-    else if (opcode >> 8 == 0xde /* 0b11011110 */ ) {
-      final imm8 = opcode & 0xff;
-      breakRewind = 2;
-      rp2040.onBreak(imm8);
-    }
-    // UDF (Encoding T2)
-    else if (opcode >> 4 == 0xf7f /* 0b111101111111 */ &&
-        opcode2 >> 12 == 0xa /* 0b1010 */ ) {
-      final imm4 = opcode & 0xf;
-      final imm12 = opcode2 & 0xfff;
-      breakRewind = 4;
-      rp2040.onBreak((imm4 << 12) | imm12);
-      PC += 2;
-    }
-    // UXTB
-    else if (opcode >> 6 == 0x2cb /* 0b1011001011 */ ) {
-      final Rm = (opcode >> 3) & 0x7;
-      final Rd = opcode & 0x7;
-      registers[Rd] = registers[Rm] & 0xff;
-    }
-    // UXTH
-    else if (opcode >> 6 == 0x2ca /* 0b1011001010 */ ) {
-      final Rm = (opcode >> 3) & 0x7;
-      final Rd = opcode & 0x7;
-      registers[Rd] = registers[Rm] & 0xffff;
-    }
-    // WFE
-    else if (opcode == 0xbf20 /* 0b1011111100100000 */ ) {
-      deltaCycles++;
-      if (eventRegistered) {
-        eventRegistered = false;
-      } else {
+        // Write back
+        if (registers & (1 << Rn) == 0) {
+          this.registers[Rn] = address;
+        }
+      case 62: // STR (immediate)
+        final imm5 = ((opcode >> 6) & 0x1f) << 2;
+        final Rn = (opcode >> 3) & 0x7;
+        final Rt = opcode & 0x7;
+        final address = registers[Rn] + imm5;
+        deltaCycles += cyclesIO(address, true);
+        writeUint32(address, registers[Rt]);
+      case 63: // STR (sp + immediate)
+        final Rt = (opcode >> 8) & 0x7;
+        final imm8 = opcode & 0xff;
+        final address = SP + (imm8 << 2);
+        deltaCycles += cyclesIO(address, true);
+        writeUint32(address, registers[Rt]);
+      case 64: // STR (register)
+        final Rm = (opcode >> 6) & 0x7;
+        final Rn = (opcode >> 3) & 0x7;
+        final Rt = opcode & 0x7;
+        final address = registers[Rm] + registers[Rn];
+        deltaCycles += cyclesIO(address, true);
+        writeUint32(address, registers[Rt]);
+      case 65: // STRB (immediate)
+        final imm5 = (opcode >> 6) & 0x1f;
+        final Rn = (opcode >> 3) & 0x7;
+        final Rt = opcode & 0x7;
+        final address = registers[Rn] + imm5;
+        deltaCycles += cyclesIO(address, true);
+        writeUint8(address, registers[Rt]);
+      case 66: // STRB (register)
+        final Rm = (opcode >> 6) & 0x7;
+        final Rn = (opcode >> 3) & 0x7;
+        final Rt = opcode & 0x7;
+        final address = registers[Rm] + registers[Rn];
+        deltaCycles += cyclesIO(address, true);
+        writeUint8(address, registers[Rt]);
+      case 67: // STRH (immediate)
+        final imm5 = ((opcode >> 6) & 0x1f) << 1;
+        final Rn = (opcode >> 3) & 0x7;
+        final Rt = opcode & 0x7;
+        final address = registers[Rn] + imm5;
+        deltaCycles += cyclesIO(address, true);
+        writeUint16(address, registers[Rt]);
+      case 68: // STRH (register)
+        final Rm = (opcode >> 6) & 0x7;
+        final Rn = (opcode >> 3) & 0x7;
+        final Rt = opcode & 0x7;
+        final address = registers[Rm] + registers[Rn];
+        deltaCycles += cyclesIO(address, true);
+        writeUint16(address, registers[Rt]);
+      case 69: // SUB (SP minus immediate)
+        final imm32 = (opcode & 0x7f) << 2;
+        SP -= imm32;
+      case 70: // SUBS (Encoding T1)
+        final imm3 = (opcode >> 6) & 0x7;
+        final Rn = (opcode >> 3) & 0x7;
+        final Rd = opcode & 0x7;
+        registers[Rd] = _substractUpdateFlags(registers[Rn], imm3);
+      case 71: // SUBS (Encoding T2)
+        final imm8 = opcode & 0xff;
+        final Rdn = (opcode >> 8) & 0x7;
+        registers[Rdn] = _substractUpdateFlags(registers[Rdn], imm8);
+      case 72: // SUBS (register)
+        final Rm = (opcode >> 6) & 0x7;
+        final Rn = (opcode >> 3) & 0x7;
+        final Rd = opcode & 0x7;
+        registers[Rd] = _substractUpdateFlags(registers[Rn], registers[Rm]);
+      case 73: // SVC
+        pendingSVCall = true;
+        interruptsUpdated = true;
+      case 74: // SXTB
+        final Rm = (opcode >> 3) & 0x7;
+        final Rd = opcode & 0x7;
+        registers[Rd] = _signExtend8(registers[Rm]);
+      case 75: // SXTH
+        final Rm = (opcode >> 3) & 0x7;
+        final Rd = opcode & 0x7;
+        registers[Rd] = _signExtend16(registers[Rm]);
+      case 76: // TST
+        final Rm = (opcode >> 3) & 0x7;
+        final Rn = opcode & 0x7;
+        final result = registers[Rn] & registers[Rm];
+        N = result & 0x80000000 != 0;
+        Z = result == 0;
+      case 77: // UDF
+        final imm8 = opcode & 0xff;
+        breakRewind = 2;
+        rp2040.onBreak(imm8);
+      case 78: // UDF (Encoding T2)
+        final imm4 = opcode & 0xf;
+        final imm12 = opcode2 & 0xfff;
+        breakRewind = 4;
+        rp2040.onBreak((imm4 << 12) | imm12);
+        PC += 2;
+      case 79: // UXTB
+        final Rm = (opcode >> 3) & 0x7;
+        final Rd = opcode & 0x7;
+        registers[Rd] = registers[Rm] & 0xff;
+      case 80: // UXTH
+        final Rm = (opcode >> 3) & 0x7;
+        final Rd = opcode & 0x7;
+        registers[Rd] = registers[Rm] & 0xffff;
+      case 81: // WFE
+        deltaCycles++;
+        if (eventRegistered) {
+          eventRegistered = false;
+        } else {
+          waiting = true;
+        }
+      case 82: // WFI
+        deltaCycles++;
         waiting = true;
-      }
-    }
-    // WFI
-    else if (opcode == 0xbf30 /* 0b1011111100110000 */ ) {
-      deltaCycles++;
-      waiting = true;
-    }
-    // YIELD
-    else if (opcode == 0xbf10 /* 0b1011111100010000 */ ) {
-      // do nothing for now. Wait for event!
-      logger.info(_LOG_NAME, 'Yield');
-    } else {
-      logger.warn(
-        _LOG_NAME,
-        'Warning: Instruction at ${opcodePC.toRadixString(16)} is not implemented yet!',
-      );
-      logger.warn(
-        _LOG_NAME,
-        'Opcode: 0x${opcode.toRadixString(16)} (0x${opcode2.toRadixString(16)})',
-      );
+      case 83: // YIELD
+        // do nothing for now. Wait for event!
+        logger.info(_LOG_NAME, 'Yield');
+      default:
+        logger.warn(
+          _LOG_NAME,
+          'Warning: Instruction at ${opcodePC.toRadixString(16)} is not implemented yet!',
+        );
+        logger.warn(
+          _LOG_NAME,
+          'Opcode: 0x${opcode.toRadixString(16)} (0x${opcode2.toRadixString(16)})',
+        );
     }
 
     cycles += deltaCycles;
