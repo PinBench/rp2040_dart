@@ -114,9 +114,15 @@ void main(List<String> arguments) {
   };
 
   if (stdin.hasTerminal) {
-    // Node's `setRawMode(true)`
-    stdin.echoMode = false;
-    stdin.lineMode = false;
+    // Node's `setRawMode(true)`. `hasTerminal` is also true for character
+    // devices that are not terminals (`< /dev/null` on macOS), where setting
+    // the mode fails; the REPL then just runs without raw input.
+    try {
+      stdin.echoMode = false;
+      stdin.lineMode = false;
+    } on StdinException {
+      // Not a real terminal.
+    }
   }
   stdin.listen((chunk) {
     // 24 is Ctrl+X
