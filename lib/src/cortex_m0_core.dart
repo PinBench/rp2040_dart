@@ -467,7 +467,15 @@ class CortexM0Core {
 
   final RP2040 rp2040;
 
-  CortexM0Core(this.rp2040) {
+  // The memories code runs from, for [_fetch16].
+  final Uint8List _flash;
+  final Uint32List _bootrom;
+  final Uint8List _sram;
+
+  CortexM0Core(this.rp2040)
+    : _flash = rp2040.flash,
+      _bootrom = rp2040.bootrom,
+      _sram = rp2040.sram {
     SP = 0xfffffffc;
     bankedSP = 0xfffffffc;
   }
@@ -482,26 +490,44 @@ class CortexM0Core {
     cycles = 0;
   }
 
+  @pragma('vm:prefer-inline')
+  @pragma('wasm:prefer-inline')
+  @pragma('dart2js:prefer-inline')
   int get SP {
     return registers[13];
   }
 
+  @pragma('vm:prefer-inline')
+  @pragma('wasm:prefer-inline')
+  @pragma('dart2js:prefer-inline')
   set SP(int value) {
     registers[13] = u32(value & ~0x3);
   }
 
+  @pragma('vm:prefer-inline')
+  @pragma('wasm:prefer-inline')
+  @pragma('dart2js:prefer-inline')
   int get LR {
     return registers[14];
   }
 
+  @pragma('vm:prefer-inline')
+  @pragma('wasm:prefer-inline')
+  @pragma('dart2js:prefer-inline')
   set LR(int value) {
     registers[14] = value;
   }
 
+  @pragma('vm:prefer-inline')
+  @pragma('wasm:prefer-inline')
+  @pragma('dart2js:prefer-inline')
   int get PC {
     return registers[15];
   }
 
+  @pragma('vm:prefer-inline')
+  @pragma('wasm:prefer-inline')
+  @pragma('dart2js:prefer-inline')
   set PC(int value) {
     registers[15] = value;
   }
@@ -561,14 +587,23 @@ class CortexM0Core {
     return (cond & 0x1) != 0 && cond != 0xf ? !result : result;
   }
 
+  @pragma('vm:prefer-inline')
+  @pragma('wasm:prefer-inline')
+  @pragma('dart2js:prefer-inline')
   int readUint32(int address) {
     return rp2040.readUint32(address);
   }
 
+  @pragma('vm:prefer-inline')
+  @pragma('wasm:prefer-inline')
+  @pragma('dart2js:prefer-inline')
   int readUint16(int address) {
     return rp2040.readUint16(address);
   }
 
+  @pragma('vm:prefer-inline')
+  @pragma('wasm:prefer-inline')
+  @pragma('dart2js:prefer-inline')
   int readUint8(int address) {
     return rp2040.readUint8(address);
   }
@@ -982,6 +1017,28 @@ class CortexM0Core {
     return 1;
   }
 
+  /// The instruction fetch: [readUint16], with the memories code runs from
+  /// (flash, the boot ROM, RAM) read here directly. Returns what
+  /// `rp2040.readUint16` would for every address; anything else still goes
+  /// through it.
+  @pragma('vm:prefer-inline')
+  @pragma('wasm:prefer-inline')
+  @pragma('dart2js:prefer-inline')
+  int _fetch16(int address) {
+    final flashOffset = address - FLASH_START_ADDRESS;
+    if (flashOffset >= 0 && flashOffset < _flash.length - 1) {
+      return _flash[flashOffset] | (_flash[flashOffset + 1] << 8);
+    }
+    if (address < _bootrom.length * 4) {
+      return (_bootrom[address >> 2] >> ((address & 2) << 3)) & 0xffff;
+    }
+    final ramOffset = address - RAM_START_ADDRESS;
+    if (ramOffset >= 0 && ramOffset < _sram.length - 1) {
+      return _sram[ramOffset] | (_sram[ramOffset + 1] << 8);
+    }
+    return rp2040.readUint16(address);
+  }
+
   int executeInstruction() {
     if (interruptsUpdated) {
       if (checkForInterrupts()) {
@@ -990,9 +1047,9 @@ class CortexM0Core {
     }
     // ARM Thumb instruction encoding - 16 bits / 2 bytes
     final opcodePC = PC & ~1; //ensure no LSB set PC are executed
-    final opcode = readUint16(opcodePC);
+    final opcode = _fetch16(opcodePC);
     final wideInstruction = opcode >> 12 == 0xf || opcode >> 11 == 0x1d;
-    final opcode2 = wideInstruction ? readUint16(opcodePC + 2) : 0;
+    final opcode2 = wideInstruction ? _fetch16(opcodePC + 2) : 0;
     PC += 2;
     var deltaCycles = 1;
     var kind = decodeTable[opcode];
