@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) Uri Shaked and contributors (rp2040js); Dart port by PinBench
 
+import 'dart:collection';
 import 'dart:typed_data';
 
 import 'clock/clock.dart';
@@ -103,9 +104,14 @@ class RP2040 {
 
   final Set<ClockListener> _clockListeners = {};
 
-  // Filled in the constructor body; a plain `final` (not `late`), because
-  // [writeUint32] and [readUint32] consult it on bus accesses.
-  final Map<int, Peripheral> peripherals = {};
+  /// The APB/AHB peripherals, keyed like rp2040js's: `(address >>> 14) << 2`.
+  ///
+  /// A real, writable map (tests swap entries in), which also keeps a dense
+  /// array of its entries for [findPeripheral]: the firmware polls peripheral
+  /// registers in tight loops, and a hash lookup with a boxed `int` key per
+  /// access is slow under dart2wasm.
+  Map<int, Peripheral> get peripherals => _peripherals;
+  final _PeripheralMap _peripherals = _PeripheralMap();
 
   // Debugging
   void Function(int code) onBreak = (code) {
@@ -192,7 +198,7 @@ class RP2040 {
         ),
       ),
     ];
-    peripherals.addAll({
+    _peripherals.addAll({
       0x18000: RPSSI(this, 'SSI'),
       0x40000: RP2040SysInfo(this, 'SYSINFO_BASE'),
       0x40004: RP2040SysCfg(this, 'SYSCFG'),
@@ -329,8 +335,7 @@ class RP2040 {
     return () => _clockListeners.remove(listener);
   }
 
-  Peripheral? findPeripheral(int address) =>
-      peripherals[(u32(address) >>> 14) << 2];
+  Peripheral? findPeripheral(int address) => _peripherals.find(address);
 
   /// We assume the address is 16-bit aligned
   int readUint16(int address) {
@@ -499,4 +504,62 @@ class RP2040 {
   void step() {
     core.executeInstruction();
   }
+}
+
+/// [RP2040.peripherals]: a `Map` whose entries are also kept in a dense
+/// array indexed by `address >>> 14`, for [find].
+///
+/// `find(address)` returns exactly `this[(address >>> 14) << 2]`: every key
+/// such a lookup can produce is a multiple of 4 below 2^20, and each one has a
+/// slot. Other keys only live in the map, where no lookup can reach them.
+class _PeripheralMap extends MapBase<int, Peripheral> {
+  final Map<int, Peripheral> _map = {};
+
+  /// `address >>> 14` split in two: 16 blocks (the address's top nibble) of
+  /// 0x4000 slots, allocated only for blocks that hold a peripheral.
+  final List<List<Peripheral?>?> _blocks = List.filled(16, null);
+
+  Peripheral? find(int address) {
+    final index = u32(address) >>> 14;
+    return _blocks[index >>> 14]?[index & 0x3fff];
+  }
+
+  void _setSlot(int key, Peripheral? value) {
+    if (key & 0x3 != 0 || key < 0 || key >= 1 << 20) {
+      return;
+    }
+    final index = key >> 2;
+    final block = _blocks[index >>> 14] ??= List<Peripheral?>.filled(
+      0x4000,
+      null,
+    );
+    block[index & 0x3fff] = value;
+  }
+
+  @override
+  Peripheral? operator [](Object? key) => _map[key];
+
+  @override
+  void operator []=(int key, Peripheral value) {
+    _map[key] = value;
+    _setSlot(key, value);
+  }
+
+  @override
+  Peripheral? remove(Object? key) {
+    final removed = _map.remove(key);
+    if (removed != null && key is int) {
+      _setSlot(key, null);
+    }
+    return removed;
+  }
+
+  @override
+  void clear() {
+    _map.clear();
+    _blocks.fillRange(0, _blocks.length, null);
+  }
+
+  @override
+  Iterable<int> get keys => _map.keys;
 }
