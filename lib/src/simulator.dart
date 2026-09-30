@@ -28,18 +28,21 @@ class Simulator implements IGDBTarget {
   void execute() {
     final rp2040 = this.rp2040;
     final clock = this.clock;
+    // Read once: `core` is a `late` field (it needs `this`), so each read of
+    // it pays a check, and this loop reads it for every instruction.
+    final core = rp2040.core;
 
     executeTimer = null;
     stopped = false;
     const cycleNanos = 1e9 / 125000000; // 125 MHz
     // A double, as in rp2040js: a WFI/WFE skip advances it by a fractional cycle count.
     for (var i = 0.0; i < 1000000 && !stopped; i++) {
-      if (rp2040.core.waiting) {
+      if (core.waiting) {
         final nanosToNextAlarm = clock.nanosToNextAlarm;
         clock.tick(nanosToNextAlarm);
         i += nanosToNextAlarm / cycleNanos;
       } else {
-        final cycles = rp2040.core.executeInstruction();
+        final cycles = core.executeInstruction();
         clock.tick(cycles * cycleNanos);
       }
     }

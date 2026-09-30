@@ -16,16 +16,17 @@ void main(List<String> args) {
   loadUF2(args.isEmpty ? 'reference/micropython.uf2' : args.first, mcu);
   mcu.core.PC = 0x10000000;
 
+  final core = mcu.core;
   const cycleNanos = 1e9 / 125000000;
   const target = 3e9;
   var instructions = 0;
   final sw = Stopwatch()..start();
   while (clock.nanos < target) {
-    if (mcu.core.waiting) {
+    if (core.waiting) {
       final n = clock.nanosToNextAlarm;
       clock.tick(n > 0 ? n : cycleNanos);
     } else {
-      clock.tick(mcu.core.executeInstruction() * cycleNanos);
+      clock.tick(core.executeInstruction() * cycleNanos);
       instructions++;
     }
   }

@@ -103,7 +103,9 @@ class RP2040 {
 
   final Set<ClockListener> _clockListeners = {};
 
-  late final Map<int, Peripheral> peripherals;
+  // Filled in the constructor body; a plain `final` (not `late`), because
+  // [writeUint32] and [readUint32] consult it on bus accesses.
+  final Map<int, Peripheral> peripherals = {};
 
   // Debugging
   void Function(int code) onBreak = (code) {
@@ -190,7 +192,7 @@ class RP2040 {
         ),
       ),
     ];
-    peripherals = {
+    peripherals.addAll({
       0x18000: RPSSI(this, 'SSI'),
       0x40000: RP2040SysInfo(this, 'SYSINFO_BASE'),
       0x40004: RP2040SysCfg(this, 'SYSCFG'),
@@ -223,7 +225,7 @@ class RP2040 {
       0x50110: usbCtrl,
       0x50200: pio[0],
       0x50300: pio[1],
-    };
+    });
     reset();
   }
 
@@ -362,6 +364,14 @@ class RP2040 {
   void writeUint32(int address, int value) {
     address = u32(address);
     value = u32(value);
+    // RAM first: it is most stores, and no RAM address maps to a peripheral,
+    // so testing it before the peripheral lookup (rp2040js's order) changes
+    // nothing but the cost.
+    if (address >= RAM_START_ADDRESS &&
+        address < RAM_START_ADDRESS + sram.length) {
+      sramView.setUint32(address - RAM_START_ADDRESS, value, Endian.little);
+      return;
+    }
     final peripheral = findPeripheral(address);
     if (peripheral != null) {
       final atomicType = (address & 0x3000) >> 12;
