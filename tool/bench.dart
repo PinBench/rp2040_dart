@@ -26,7 +26,7 @@ void main(List<String> args) {
       final n = clock.nanosToNextAlarm;
       clock.tick(n > 0 ? n : cycleNanos);
     } else {
-      clock.tick(core.executeInstruction() * cycleNanos);
+      clock.tick(core.executeInstruction().toDouble() * cycleNanos);
       instructions++;
     }
   }

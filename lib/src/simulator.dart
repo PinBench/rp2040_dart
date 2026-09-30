@@ -43,7 +43,9 @@ class Simulator implements IGDBTarget {
         i += nanosToNextAlarm / cycleNanos;
       } else {
         final cycles = core.executeInstruction();
-        clock.tick(cycles * cycleNanos);
+        // `toDouble()` first: `int * double` is a generic `num` multiply, which
+        // dart2wasm boxes (an allocation per instruction).
+        clock.tick(cycles.toDouble() * cycleNanos);
       }
     }
     if (!stopped) {
