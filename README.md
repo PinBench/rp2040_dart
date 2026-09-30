@@ -21,15 +21,22 @@ follows, above all for 32-bit arithmetic, are in [`PORTING.md`](PORTING.md).
   seconds ends in the same CPU and RAM state (hash `9893d66b`, 3,990,398
   instructions) on rp2040js and on every Dart target, and the MicroPython
   REPL runs over emulated USB (`example/micropython_run.dart`).
-- **Speed** on that run (Apple M-series, `dart run tool/bench.dart`):
+- **Speed**, in million emulated instructions per second (Apple M-series,
+  medians of three runs). *Workload*: MicroPython running one line of pure
+  computation typed over emulated USB (`tool/bench_py.dart`, and
+  `reference/bench_py.ts` for rp2040js). *Boot*: 3 simulated seconds from
+  reset (`tool/bench.dart`). Both end in the same state as rp2040js on every
+  target.
 
-  | | M instructions/s | vs rp2040js |
-  | --- | --- | --- |
-  | rp2040js (Node) | 20.0 | 1.00x |
-  | Dart AOT | 29.7 | 1.49x |
-  | dart2js | 25.3 | 1.27x |
-  | Dart JIT | 20.2 | 1.01x |
-  | dart2wasm | 16.6 | 0.83x |
+  | | Workload | vs rp2040js | Boot | vs rp2040js |
+  | --- | --- | --- | --- | --- |
+  | rp2040js (Node) | 34.1 | 1.00x | 22.1 | 1.00x |
+  | **dart2wasm** | **~80** | **2.3x** | **~46** | **2.1x** |
+  | Dart AOT | 52.3 | 1.53x | 53.2 | 2.41x |
+  | dart2js | 40.3 | 1.18x | 30.5 | 1.38x |
+
+  Startup (`RP2040()` plus `loadBootrom`) takes 2 ms native, 3 ms dart2js
+  and 8 ms Wasm.
 
 ## Usage
 
