@@ -243,7 +243,7 @@ class RP2040 {
   void reset() {
     core.reset();
     pwm.reset();
-    flash.fillRange(0, flash.length, 0xff);
+    _fillBytes(flash, 0xff);
   }
 
   int readUint32(int address) {
@@ -562,4 +562,21 @@ class _PeripheralMap extends MapBase<int, Peripheral> {
 
   @override
   Iterable<int> get keys => _map.keys;
+}
+
+/// `bytes.fillRange(0, bytes.length, value)`, by doubling copies: rp2040js's
+/// `fill` is a native memset, while `fillRange` loops byte by byte, and the
+/// flash is refilled (16 MB) on every reset. `setRange` compiles to a native
+/// bulk copy on every platform, so this is about 24 of those.
+void _fillBytes(Uint8List bytes, int value) {
+  if (bytes.isEmpty) {
+    return;
+  }
+  bytes[0] = value;
+  for (var filled = 1; filled < bytes.length; filled *= 2) {
+    final count = filled < bytes.length - filled
+        ? filled
+        : bytes.length - filled;
+    bytes.setRange(filled, filled + count, bytes);
+  }
 }
