@@ -223,6 +223,13 @@ class RPI2C extends BasePeripheral implements Peripheral {
     abortSource |= reason | (_txFIFO.itemCount << _TX_FLUSH_CNT_SHIFT);
     _txFIFO.reset();
     setInterrupts(_R_TX_ABRT);
+    // Deviates from rp2040js v1.4.0, which stops at TX_ABRT. On the chip
+    // TX_EMPTY is a level — the TX FIFO at or below IC_TX_TL — so flushing the
+    // FIFO raises it; rp2040js only raises it when a command is taken from
+    // the FIFO, so after an abort it never rose. The pico-sdk waits on
+    // TX_EMPTY after each byte it writes, so every NACKed address sat out the
+    // caller's whole timeout and was reported as a timeout, not a NACK.
+    setInterrupts(_R_TX_EMPTY);
   }
 
   void nextCommand() {
