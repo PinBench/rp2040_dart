@@ -288,7 +288,10 @@ class RPSIO {
       case _INTERP1_ACCUM1_ADD:
         return interp1.smresult1;
     }
-    print('Read from invalid SIO address: ${offset.toRadixString(16)}');
+    _rp2040.logger.warn(
+      'SIO',
+      'Read from invalid SIO address: ${offset.toRadixString(16)}',
+    );
     return 0xffffffff;
   }
 
@@ -410,7 +413,8 @@ class RPSIO {
       case _INTERP1_BASE_1AND0:
         interp1.setBase01(value);
       default:
-        print(
+        _rp2040.logger.warn(
+          'SIO',
           'Write to invalid SIO address: ${offset.toRadixString(16)}, value=${value.toRadixString(16)}',
         );
     }
